@@ -6,4 +6,5 @@ tools/*.exe
 tools/*.pgn
 tools/*.epd
 matches/
-config.yml
+deploy/lichess-bot/
+deploy/venv/

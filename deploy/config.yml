@@ -1,0 +1,68 @@
+# lichess-bot config for Tempo. The token is never stored here: run.ps1 / run.sh
+# pass it through the LICHESS_BOT_TOKEN environment variable.
+token: "set-LICHESS_BOT_TOKEN"
+url: "https://lichess.org/"
+
+engine:
+  dir: "../../build/"
+  name: "tempo.exe"          # run.sh rewrites this to "tempo" on Linux
+  protocol: "uci"
+  ponder: false              # Tempo does not implement "go ponder"
+  polyglot:
+    enabled: false
+  draw_or_resign:
+    resign_enabled: true
+    resign_score: -1000
+    resign_moves: 5
+    offer_draw_enabled: true
+    offer_draw_score: 0
+    offer_draw_moves: 10
+    offer_draw_pieces: 10
+  online_moves:
+    online_egtb:
+      enabled: false
+  uci_options:
+    Hash: 256
+    Move Overhead: 100
+
+abort_time: 30
+move_overhead: 1000
+max_takebacks_accepted: 0
+
+challenge:
+  concurrency: 2
+  accept_bot: true
+  only_bot: false
+  max_increment: 20
+  min_increment: 0
+  max_base: 1800
+  min_base: 30
+  variants:
+    - standard
+  time_controls:
+    - bullet
+    - blitz
+    - rapid
+  modes:
+    - casual
+    - rated
+
+greeting:
+  hello: "Hi, I'm {me}, a chess engine written from scratch in C++. Good luck!"
+  goodbye: "Good game!"
+  hello_spectators: "Source and test results: https://github.com/ethanstoner/tempo-chess"
+  goodbye_spectators: "Thanks for watching!"
+
+# Seeks rated games against other bots while idle, so the rating keeps moving.
+matchmaking:
+  allow_matchmaking: true
+  challenge_timeout: 5
+  challenge_initial_time:
+    - 180
+    - 300
+  challenge_increment:
+    - 2
+    - 3
+  opponent_rating_difference: 300
+  challenge_mode: "rated"
+  challenge_filter: coarse
