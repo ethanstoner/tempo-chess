@@ -2,6 +2,7 @@
 
 - Zobrist keys: the incrementally updated key after a move sequence must equal
   the key computed from scratch for the resulting FEN.
+- Eval symmetry: a position and its colour-flipped mirror score the same.
 - Tactics: forced mates the search must find, reported as "mate N".
 - Protocol: "stop" ends "go infinite" promptly, and every bestmove is legal.
 
@@ -85,6 +86,27 @@ def check_keys(eng, failures):
     print(f"zobrist: {checked} random move sequences, incremental key == from-scratch key")
 
 
+def check_symmetry(eng, failures):
+    """Colour-flipped positions must evaluate identically from the mover's side."""
+    rng = random.Random(11)
+    bad = 0
+    for _ in range(300):
+        board = chess.Board()
+        for _ in range(rng.randint(1, 100)):
+            moves = list(board.legal_moves)
+            if not moves:
+                break
+            board.push(rng.choice(moves))
+        evals = []
+        for b in (board, board.mirror()):
+            eng.send(f"position fen {b.fen()}\nd")
+            evals.append(int(eng.read_until("key")[-1].split()[-1]))
+        if evals[0] != evals[1]:
+            bad += 1
+            failures.append(f"asymmetric eval {evals} for {board.fen()}")
+    print(f"{'ok  ' if not bad else 'FAIL'} eval symmetry: 300 random positions vs their colour-flipped mirror")
+
+
 def check_mates(eng, failures):
     for fen, n in MATES:
         eng.send("ucinewgame")
@@ -131,6 +153,7 @@ def main():
     eng.read_until("uciok")
     failures = []
     check_keys(eng, failures)
+    check_symmetry(eng, failures)
     check_mates(eng, failures)
     check_protocol(eng, failures)
     eng.close()

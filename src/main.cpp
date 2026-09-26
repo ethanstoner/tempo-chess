@@ -133,7 +133,7 @@ Limits parse_go(std::istringstream& in) {
 int main(int argc, char** argv) {
     init_bitboards();
     zobrist::init();
-    init_eval_tables();
+    init_eval();
     init_search();
 
     Search search;

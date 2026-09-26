@@ -22,7 +22,6 @@ struct Undo {
     int halfmove;
     int captured;
     Move move;
-    int mg[2], eg[2], phase;
 };
 
 enum GenType { GEN_ALL, GEN_NOISY };
@@ -70,9 +69,6 @@ public:
     int game_ply() const { return int(history.size()); }
     Move last_move() const { return history.empty() ? NO_MOVE : history.back().move; }
 
-    // Incrementally updated PeSTO terms, read by eval.
-    int mg[2] = {}, eg[2] = {}, phase = 0;
-
     u64 compute_key() const;
 
 private:
@@ -101,8 +97,5 @@ extern u64 side;
 void init();
 } // namespace zobrist
 
-void init_eval_tables();
-extern int MG_TABLE[12][64];
-extern int EG_TABLE[12][64];
 extern const int PHASE_INC[6];
 extern const int SEE_VALUE[7];

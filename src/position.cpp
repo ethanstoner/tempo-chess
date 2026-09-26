@@ -4,8 +4,6 @@
 #include <cstring>
 #include <sstream>
 
-#include "pesto_tables.h"
-
 namespace zobrist {
 u64 psq[12][64];
 u64 castle[16];
@@ -28,21 +26,8 @@ void init() {
 }
 } // namespace zobrist
 
-int MG_TABLE[12][64];
-int EG_TABLE[12][64];
 const int PHASE_INC[6] = {0, 1, 1, 2, 4, 0};
 const int SEE_VALUE[7] = {100, 320, 330, 500, 900, 20000, 0};
-
-void init_eval_tables() {
-    for (int pt = PAWN; pt <= KING; pt++) {
-        for (int sq = 0; sq < 64; sq++) {
-            MG_TABLE[make_piece(WHITE, pt)][sq] = PESTO_MG_VALUE[pt] + PESTO_MG_PST[pt][sq ^ 56];
-            EG_TABLE[make_piece(WHITE, pt)][sq] = PESTO_EG_VALUE[pt] + PESTO_EG_PST[pt][sq ^ 56];
-            MG_TABLE[make_piece(BLACK, pt)][sq] = PESTO_MG_VALUE[pt] + PESTO_MG_PST[pt][sq];
-            EG_TABLE[make_piece(BLACK, pt)][sq] = PESTO_EG_VALUE[pt] + PESTO_EG_PST[pt][sq];
-        }
-    }
-}
 
 namespace {
 
@@ -70,9 +55,6 @@ void Position::put_piece(int pc, int sq) {
     pieces[type_of(pc)] |= bb(sq);
     colors[color_of(pc)] |= bb(sq);
     key ^= zobrist::psq[pc][sq];
-    mg[color_of(pc)] += MG_TABLE[pc][sq];
-    eg[color_of(pc)] += EG_TABLE[pc][sq];
-    phase += PHASE_INC[type_of(pc)];
 }
 
 void Position::remove_piece(int sq) {
@@ -81,9 +63,6 @@ void Position::remove_piece(int sq) {
     pieces[type_of(pc)] ^= bb(sq);
     colors[color_of(pc)] ^= bb(sq);
     key ^= zobrist::psq[pc][sq];
-    mg[color_of(pc)] -= MG_TABLE[pc][sq];
-    eg[color_of(pc)] -= EG_TABLE[pc][sq];
-    phase -= PHASE_INC[type_of(pc)];
 }
 
 void Position::move_piece(int from, int to) {
@@ -94,8 +73,6 @@ void Position::move_piece(int from, int to) {
     pieces[type_of(pc)] ^= fromTo;
     colors[color_of(pc)] ^= fromTo;
     key ^= zobrist::psq[pc][from] ^ zobrist::psq[pc][to];
-    mg[color_of(pc)] += MG_TABLE[pc][to] - MG_TABLE[pc][from];
-    eg[color_of(pc)] += EG_TABLE[pc][to] - EG_TABLE[pc][from];
 }
 
 bool Position::set_fen(const std::string& fen) {
@@ -107,7 +84,6 @@ bool Position::set_fen(const std::string& fen) {
     std::fill(std::begin(board), std::end(board), NO_PIECE);
     std::fill(std::begin(pieces), std::end(pieces), 0);
     colors[WHITE] = colors[BLACK] = 0;
-    mg[0] = mg[1] = eg[0] = eg[1] = phase = 0;
     key = 0;
     history.clear();
 
@@ -191,7 +167,7 @@ u64 Position::compute_key() const {
 }
 
 void Position::do_move(Move m) {
-    history.push_back({key, castling, ep, halfmove, NO_PIECE, m, {mg[0], mg[1]}, {eg[0], eg[1]}, phase});
+    history.push_back({key, castling, ep, halfmove, NO_PIECE, m});
     Undo& u = history.back();
 
     const int us = side, them = side ^ 1;
@@ -263,15 +239,12 @@ void Position::undo_move() {
     castling = u.castling;
     ep = u.ep;
     halfmove = u.halfmove;
-    mg[0] = u.mg[0], mg[1] = u.mg[1];
-    eg[0] = u.eg[0], eg[1] = u.eg[1];
-    phase = u.phase;
 }
 
 // Repetition detection never looks back past a null move: halfmove is reset
 // to zero there, which bounds the scan.
 void Position::do_null() {
-    history.push_back({key, castling, ep, halfmove, NO_PIECE, NO_MOVE, {mg[0], mg[1]}, {eg[0], eg[1]}, phase});
+    history.push_back({key, castling, ep, halfmove, NO_PIECE, NO_MOVE});
     if (ep != NO_SQ) key ^= zobrist::ep_file[file_of(ep)];
     ep = NO_SQ;
     halfmove = 0;

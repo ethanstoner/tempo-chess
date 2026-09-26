@@ -1,0 +1,229 @@
+// Texel tuner: fits every evaluation parameter to game results.
+//
+// Each training position is reduced to its linear feature counts (the same
+// trace the engine's evaluator produces), so the static eval is a dot product
+// with the parameters. The loss is the mean squared error between
+// sigmoid(K * eval) and the game result; parameters are fitted with Adam on
+// the full batch, multithreaded. 10% of positions are held out and their loss
+// is reported alongside, so over-fitting is visible.
+//
+//   tempo-tune <positions.txt> [epochs] [out.h]
+//   positions.txt: one "<fen> | <result>" per line, result 1 / 0.5 / 0 for white
+
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
+#include <fstream>
+#include <random>
+#include <string>
+#include <thread>
+#include <vector>
+
+#include "../src/eval.h"
+#include "../src/search.h"
+
+namespace {
+
+struct Entry {
+    u32 start;  // offset into the shared feature arrays
+    u16 count;
+    u8 phase;
+    float result;
+};
+
+struct Dataset {
+    std::vector<Entry> entries;
+    std::vector<u16> index;
+    std::vector<std::int16_t> coeff;
+};
+
+constexpr int N = param::COUNT;
+const unsigned THREADS = std::max(1u, std::thread::hardware_concurrency());
+
+double eval_of(const Dataset& d, const Entry& e, const double* mg, const double* eg) {
+    double m = 0, g = 0;
+    for (u32 i = e.start; i < e.start + e.count; i++) {
+        m += mg[d.index[i]] * d.coeff[i];
+        g += eg[d.index[i]] * d.coeff[i];
+    }
+    return (m * e.phase + g * (24 - e.phase)) / 24.0;
+}
+
+double sigmoid(double K, double e) { return 1.0 / (1.0 + std::exp(-K * e / 400.0)); }
+
+template <typename F>
+void parallel_for(size_t n, F f) {
+    std::vector<std::thread> pool;
+    for (unsigned t = 0; t < THREADS; t++)
+        pool.emplace_back([&, t] {
+            size_t lo = n * t / THREADS, hi = n * (t + 1) / THREADS;
+            f(t, lo, hi);
+        });
+    for (auto& th : pool) th.join();
+}
+
+double loss(const Dataset& d, size_t lo, size_t hi, double K, const double* mg, const double* eg) {
+    std::vector<double> part(THREADS, 0.0);
+    parallel_for(hi - lo, [&](unsigned t, size_t a, size_t b) {
+        double s = 0;
+        for (size_t i = lo + a; i < lo + b; i++) {
+            const Entry& e = d.entries[i];
+            double diff = sigmoid(K, eval_of(d, e, mg, eg)) - e.result;
+            s += diff * diff;
+        }
+        part[t] = s;
+    });
+    double total = 0;
+    for (double p : part) total += p;
+    return total / double(hi - lo);
+}
+
+Dataset load(const char* path) {
+    Dataset d;
+    std::ifstream in(path);
+    std::string line;
+    std::vector<std::string> lines;
+    while (std::getline(in, line)) lines.push_back(line);
+    std::printf("read %zu lines\n", lines.size());
+
+    // Keep only quiet positions: the static eval must already equal the
+    // quiescence score, otherwise the label is explained by a pending capture
+    // rather than by the evaluation terms being tuned.
+    std::vector<std::vector<Entry>> ents(THREADS);
+    std::vector<std::vector<u16>> idx(THREADS);
+    std::vector<std::vector<std::int16_t>> co(THREADS);
+    std::atomic<size_t> skipped{0};
+    parallel_for(lines.size(), [&](unsigned t, size_t lo, size_t hi) {
+        Search search;
+        search.tt.resize(1);
+        Position pos;
+        EvalTrace trace;
+        for (size_t i = lo; i < hi; i++) {
+            const std::string& l = lines[i];
+            size_t bar = l.find('|');
+            if (bar == std::string::npos || !pos.set_fen(l.substr(0, bar))) {
+                skipped++;
+                continue;
+            }
+            float result = std::stof(l.substr(bar + 1));
+            if (pos.in_check() || search.quiet_score(pos) != evaluate(pos)) {
+                skipped++;
+                continue;
+            }
+            evaluate_white(pos, &trace);
+            Entry e{u32(idx[t].size()), 0, u8(trace.phase), result};
+            for (int p = 0; p < N; p++)
+                if (trace.coeff[p]) {
+                    idx[t].push_back(u16(p));
+                    co[t].push_back(std::int16_t(trace.coeff[p]));
+                    e.count++;
+                }
+            ents[t].push_back(e);
+        }
+    });
+    for (unsigned t = 0; t < THREADS; t++) {
+        u32 base = u32(d.index.size());
+        for (Entry e : ents[t]) {
+            e.start += base;
+            d.entries.push_back(e);
+        }
+        d.index.insert(d.index.end(), idx[t].begin(), idx[t].end());
+        d.coeff.insert(d.coeff.end(), co[t].begin(), co[t].end());
+    }
+    std::shuffle(d.entries.begin(), d.entries.end(), std::mt19937(12345));
+    std::printf("kept %zu quiet positions, skipped %zu\n", d.entries.size(), skipped.load());
+    return d;
+}
+
+void write_header(const char* path, const double* mg, const double* eg, double trainLoss, double valLoss,
+                  size_t positions) {
+    FILE* f = std::fopen(path, "w");
+    std::fprintf(f, "#pragma once\n\n");
+    std::fprintf(f, "// Generated by tools/tune.cpp from %zu quiet positions.\n", positions);
+    std::fprintf(f, "// Final MSE: train %.6f, held-out %.6f. Layout: see param:: in eval.h.\n", trainLoss, valLoss);
+    std::fprintf(f, "constexpr bool HAVE_TUNED_PARAMS = true;\n");
+    std::fprintf(f, "constexpr int TUNED_PARAMS[%d][2] = {\n", N);
+    for (int i = 0; i < N; i++)
+        std::fprintf(f, "    {%d, %d},%s", int(std::lround(mg[i])), int(std::lround(eg[i])), (i % 4 == 3) ? "\n" : "");
+    std::fprintf(f, "\n};\n");
+    std::fclose(f);
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    if (argc < 2) {
+        std::printf("usage: tempo-tune <positions.txt> [epochs] [out.h]\n");
+        return 1;
+    }
+    const int epochs = argc > 2 ? std::atoi(argv[2]) : 2000;
+    const char* out = argc > 3 ? argv[3] : "eval_params.h";
+
+    init_bitboards();
+    zobrist::init();
+    init_eval();
+    init_search();
+
+    Dataset d = load(argv[1]);
+    const size_t n = d.entries.size(), train = n * 9 / 10;
+
+    std::vector<double> mg(N), eg(N);
+    for (int i = 0; i < N; i++) mg[i] = PARAMS[i].mg, eg[i] = PARAMS[i].eg;
+
+    // Scale K so the untuned eval best predicts results before fitting weights.
+    double K = 1.0, step = 0.5;
+    double best = loss(d, 0, train, K, mg.data(), eg.data());
+    for (int it = 0; it < 30; it++) {
+        for (double cand : {K - step, K + step}) {
+            if (cand <= 0) continue;
+            double l = loss(d, 0, train, cand, mg.data(), eg.data());
+            if (l < best) best = l, K = cand;
+        }
+        step /= 2;
+    }
+    std::printf("K = %.4f, initial loss train %.6f held-out %.6f\n", K, best,
+                loss(d, train, n, K, mg.data(), eg.data()));
+
+    std::vector<double> m1(2 * N, 0), m2(2 * N, 0);
+    const double lr = 1.0, b1 = 0.9, b2 = 0.999, eps = 1e-8;
+    auto t0 = std::chrono::steady_clock::now();
+    for (int epoch = 1; epoch <= epochs; epoch++) {
+        std::vector<std::vector<double>> grads(THREADS, std::vector<double>(2 * N, 0.0));
+        parallel_for(train, [&](unsigned t, size_t lo, size_t hi) {
+            auto& g = grads[t];
+            for (size_t i = lo; i < hi; i++) {
+                const Entry& e = d.entries[i];
+                double s = sigmoid(K, eval_of(d, e, mg.data(), eg.data()));
+                double base = (s - e.result) * s * (1 - s);
+                double gm = base * e.phase / 24.0, ge = base * (24 - e.phase) / 24.0;
+                for (u32 j = e.start; j < e.start + e.count; j++) {
+                    g[d.index[j]] += gm * d.coeff[j];
+                    g[N + d.index[j]] += ge * d.coeff[j];
+                }
+            }
+        });
+        for (int p = 0; p < 2 * N; p++) {
+            double g = 0;
+            for (auto& part : grads) g += part[p];
+            g = g * 2.0 * K / 400.0 / double(train);
+            m1[p] = b1 * m1[p] + (1 - b1) * g;
+            m2[p] = b2 * m2[p] + (1 - b2) * g * g;
+            double mh = m1[p] / (1 - std::pow(b1, epoch)), vh = m2[p] / (1 - std::pow(b2, epoch));
+            double& w = p < N ? mg[p] : eg[p - N];
+            w -= lr * mh / (std::sqrt(vh) + eps);
+        }
+        if (epoch % 100 == 0 || epoch == epochs) {
+            double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+            std::printf("epoch %5d  train %.6f  held-out %.6f  (%.0fs)\n", epoch,
+                        loss(d, 0, train, K, mg.data(), eg.data()), loss(d, train, n, K, mg.data(), eg.data()),
+                        secs);
+            std::fflush(stdout);
+        }
+    }
+    double tl = loss(d, 0, train, K, mg.data(), eg.data()), vl = loss(d, train, n, K, mg.data(), eg.data());
+    write_header(out, mg.data(), eg.data(), tl, vl, n);
+    std::printf("wrote %s\n", out);
+    return 0;
+}

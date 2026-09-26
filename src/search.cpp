@@ -360,3 +360,10 @@ SearchResult Search::go(Position& pos, const Limits& lim, bool verbose) {
     result.nodes = nodes;
     return result;
 }
+
+int Search::quiet_score(Position& pos) {
+    stop = false;
+    limits = Limits{};
+    hardLimit = 0;
+    return qsearch(pos, -INF, INF, 0);
+}

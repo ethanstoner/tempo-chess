@@ -27,6 +27,7 @@ class Search {
 public:
     SearchResult go(Position& pos, const Limits& limits, bool verbose);
     void clear();
+    int quiet_score(Position& pos); // quiescence score, side to move's view
 
     std::atomic<bool> stop{false};
     TranspositionTable tt;
