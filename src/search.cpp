@@ -52,6 +52,7 @@ void Search::clear() {
     tt.clear();
     std::memset(history, 0, sizeof(history));
     std::memset(killers, 0, sizeof(killers));
+    std::fill(contHist.begin(), contHist.end(), 0);
 }
 
 i64 Search::elapsed() const {
@@ -64,9 +65,33 @@ void Search::check_limits() {
     if (hardLimit && elapsed() >= hardLimit) stop = true;
 }
 
-void Search::update_history(int side, Move m, int bonus) {
-    int& h = history[side][from_sq(m)][to_sq(m)];
-    h += bonus - h * std::abs(bonus) / HISTORY_MAX;
+namespace {
+void gravity(int& h, int bonus) { h += bonus - h * std::abs(bonus) / HISTORY_MAX; }
+} // namespace
+
+// Table row for the move made `back` plies before this node, or null when
+// that ply was the root's parent or a null move.
+const int* Search::cont_entry(int ply, int back) const {
+    if (ply < back || movedPiece[ply - back] == NO_PIECE) return nullptr;
+    return &contHist[(movedPiece[ply - back] * 64 + movedTo[ply - back]) * 12 * 64];
+}
+int* Search::cont_entry(int ply, int back) {
+    return const_cast<int*>(static_cast<const Search*>(this)->cont_entry(ply, back));
+}
+
+int Search::quiet_score(const Position& pos, int ply, Move m) const {
+    const int idx = pos.piece_on(from_sq(m)) * 64 + to_sq(m);
+    int s = history[pos.side_to_move()][from_sq(m)][to_sq(m)];
+    for (int back = 1; back <= 2; back++)
+        if (const int* c = cont_entry(ply, back)) s += c[idx];
+    return s;
+}
+
+void Search::update_quiet(const Position& pos, int ply, Move m, int bonus) {
+    gravity(history[pos.side_to_move()][from_sq(m)][to_sq(m)], bonus);
+    const int idx = pos.piece_on(from_sq(m)) * 64 + to_sq(m);
+    for (int back = 1; back <= 2; back++)
+        if (int* c = cont_entry(ply, back)) gravity(c[idx], bonus);
 }
 
 void Search::score_moves(const Position& pos, MoveList& list, int* scores, Move ttMove, int ply) const {
@@ -76,7 +101,7 @@ void Search::score_moves(const Position& pos, MoveList& list, int* scores, Move 
         else if (!is_quiet(m)) scores[i] = (pos.see_ge(m, 0) ? SCORE_GOOD_NOISY : SCORE_BAD_NOISY) + mvv_lva(pos, m);
         else if (m == killers[ply][0]) scores[i] = SCORE_KILLER;
         else if (m == killers[ply][1]) scores[i] = SCORE_KILLER - 1;
-        else scores[i] = history[pos.side_to_move()][from_sq(m)][to_sq(m)];
+        else scores[i] = quiet_score(pos, ply, m);
     }
 }
 
@@ -183,6 +208,7 @@ int Search::negamax(Position& pos, int alpha, int beta, int depth, int ply, bool
 
         if (doNull && depth >= 3 && eval >= beta && pos.has_non_pawn(us)) {
             int R = 3 + depth / 3 + std::min((eval - beta) / 200, 3);
+            movedPiece[ply] = NO_PIECE;
             pos.do_null();
             int score = -negamax(pos, -beta, -beta + 1, depth - 1 - R, ply + 1, false);
             pos.undo_null();
@@ -218,6 +244,8 @@ int Search::negamax(Position& pos, int alpha, int beta, int depth, int ply, bool
         }
 
         legal++;
+        movedPiece[ply] = pos.piece_on(from_sq(m));
+        movedTo[ply] = to_sq(m);
         pos.do_move(m);
         const bool givesCheck = pos.in_check();
         const int newDepth = depth - 1;
@@ -260,8 +288,8 @@ int Search::negamax(Position& pos, int alpha, int beta, int depth, int ply, bool
                             killers[ply][0] = m;
                         }
                         int bonus = std::min(depth * depth * 8, 1600);
-                        update_history(us, m, bonus);
-                        for (int q = 0; q < quietCount; q++) update_history(us, quiets[q], -bonus);
+                        update_quiet(pos, ply, m, bonus);
+                        for (int q = 0; q < quietCount; q++) update_quiet(pos, ply, quiets[q], -bonus);
                     }
                     break;
                 }

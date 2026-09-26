@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <vector>
 
 #include "position.h"
 #include "tt.h"
@@ -37,7 +38,10 @@ private:
     int negamax(Position& pos, int alpha, int beta, int depth, int ply, bool doNull);
     int qsearch(Position& pos, int alpha, int beta, int ply);
     void score_moves(const Position& pos, MoveList& list, int* scores, Move ttMove, int ply) const;
-    void update_history(int side, Move m, int bonus);
+    void update_quiet(const Position& pos, int ply, Move m, int bonus);
+    int quiet_score(const Position& pos, int ply, Move m) const;
+    int* cont_entry(int ply, int back);
+    const int* cont_entry(int ply, int back) const;
     void check_limits();
     i64 elapsed() const;
 
@@ -51,6 +55,11 @@ private:
 
     Move killers[MAX_PLY][2] = {};
     int history[2][64][64] = {};
+    // Continuation history: [previous piece][previous to][piece][to], so a
+    // quiet move is scored by how it fared as a reply to the moves before it.
+    std::vector<int> contHist = std::vector<int>(12 * 64 * 12 * 64, 0);
+    int movedPiece[MAX_PLY + 1] = {};
+    int movedTo[MAX_PLY + 1] = {};
     int staticEval[MAX_PLY] = {};
     Move pv[MAX_PLY][MAX_PLY] = {};
     int pvLen[MAX_PLY] = {};
