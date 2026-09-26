@@ -1,6 +1,6 @@
 """Convert PGN games into "<fen> | <result>" lines for tools/tune.cpp.
 
-Skips the opening-book plies (they carry no information about the engine's
+Skips time-forfeit games, the opening-book plies (they carry no information about the engine's
 own play), positions after the game was already decided by adjudication, and
 duplicate positions. Result is from white's point of view.
 
@@ -31,7 +31,8 @@ def main():
             with open(path) as f:
                 while (game := chess.pgn.read_game(f)) is not None:
                     result = RESULTS.get(game.headers.get("Result"))
-                    if result is None:
+                    # Time forfeits say nothing about the position on the board.
+                    if result is None or game.headers.get("Termination", "normal") != "normal":
                         continue
                     games += 1
                     board = game.board()

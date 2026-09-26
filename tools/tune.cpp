@@ -173,16 +173,16 @@ int main(int argc, char** argv) {
     for (int i = 0; i < N; i++) mg[i] = PARAMS[i].mg, eg[i] = PARAMS[i].eg;
 
     // Scale K so the untuned eval best predicts results before fitting weights.
-    double K = 1.0, step = 0.5;
-    double best = loss(d, 0, train, K, mg.data(), eg.data());
-    for (int it = 0; it < 30; it++) {
-        for (double cand : {K - step, K + step}) {
-            if (cand <= 0) continue;
-            double l = loss(d, 0, train, cand, mg.data(), eg.data());
-            if (l < best) best = l, K = cand;
-        }
-        step /= 2;
+    // Golden-section search; the loss is unimodal in K.
+    double lo = 0.05, hi = 10.0;
+    const double phi = (std::sqrt(5.0) - 1) / 2;
+    auto lossK = [&](double k) { return loss(d, 0, train, k, mg.data(), eg.data()); };
+    double x1 = hi - phi * (hi - lo), x2 = lo + phi * (hi - lo), f1 = lossK(x1), f2 = lossK(x2);
+    for (int it = 0; it < 40; it++) {
+        if (f1 < f2) hi = x2, x2 = x1, f2 = f1, x1 = hi - phi * (hi - lo), f1 = lossK(x1);
+        else lo = x1, x1 = x2, f1 = f2, x2 = lo + phi * (hi - lo), f2 = lossK(x2);
     }
+    const double K = (lo + hi) / 2, best = lossK(K);
     std::printf("K = %.4f, initial loss train %.6f held-out %.6f\n", K, best,
                 loss(d, train, n, K, mg.data(), eg.data()));
 
