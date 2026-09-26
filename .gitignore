@@ -1,0 +1,9 @@
+build/
+temp/
+venv/
+__pycache__/
+tools/*.exe
+tools/*.pgn
+tools/*.epd
+matches/
+config.yml
