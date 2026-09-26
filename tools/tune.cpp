@@ -7,7 +7,7 @@
 // the full batch, multithreaded. 10% of positions are held out and their loss
 // is reported alongside, so over-fitting is visible.
 //
-//   tempo-tune <positions.txt> [epochs] [out.h]
+//   tempo-tune <positions.txt> [epochs] [out.h] [min-count] [freeze-material]
 //   positions.txt: one "<fen> | <result>" per line, result 1 / 0.5 / 0 for white
 
 #include <algorithm>
@@ -155,11 +155,15 @@ void write_header(const char* path, const double* mg, const double* eg, double t
 
 int main(int argc, char** argv) {
     if (argc < 2) {
-        std::printf("usage: tempo-tune <positions.txt> [epochs] [out.h]\n");
+        std::printf("usage: tempo-tune <positions.txt> [epochs] [out.h] [min-count] [freeze-material]\n");
         return 1;
     }
     const int epochs = argc > 2 ? std::atoi(argv[2]) : 2000;
     const char* out = argc > 3 ? argv[3] : "eval_params.h";
+    // Parameters seen in fewer training positions than this keep their
+    // starting value: with only a handful of samples they fit noise.
+    const int minCount = argc > 4 ? std::atoi(argv[4]) : 0;
+    const bool freezeMaterial = argc > 5 && std::string(argv[5]) == "freeze-material";
 
     init_bitboards();
     zobrist::init();
@@ -186,6 +190,17 @@ int main(int argc, char** argv) {
     std::printf("K = %.4f, initial loss train %.6f held-out %.6f\n", K, best,
                 loss(d, train, n, K, mg.data(), eg.data()));
 
+    std::vector<int> seen(N, 0);
+    for (size_t i = 0; i < train; i++)
+        for (u32 j = d.entries[i].start; j < d.entries[i].start + d.entries[i].count; j++) seen[d.index[j]]++;
+    std::vector<bool> frozen(N, false);
+    int nFrozen = 0;
+    for (int p = 0; p < N; p++) {
+        frozen[p] = seen[p] < minCount || (freezeMaterial && p < param::PST);
+        nFrozen += frozen[p];
+    }
+    std::printf("tuning %d parameter pairs, %d frozen\n", N - nFrozen, nFrozen);
+
     std::vector<double> m1(2 * N, 0), m2(2 * N, 0);
     const double lr = 1.0, b1 = 0.9, b2 = 0.999, eps = 1e-8;
     auto t0 = std::chrono::steady_clock::now();
@@ -211,6 +226,7 @@ int main(int argc, char** argv) {
             m1[p] = b1 * m1[p] + (1 - b1) * g;
             m2[p] = b2 * m2[p] + (1 - b2) * g * g;
             double mh = m1[p] / (1 - std::pow(b1, epoch)), vh = m2[p] / (1 - std::pow(b2, epoch));
+            if (frozen[p % N]) continue;
             double& w = p < N ? mg[p] : eg[p - N];
             w -= lr * mh / (std::sqrt(vh) + eps);
         }
