@@ -1,0 +1,10 @@
+[Event "Tempo gauntlet, 10+0.1"]
+[Date "2026.09.26"]
+[White "Tempo 0.2"]
+[Black "Stockfish 19 (UCI_Elo 2800)"]
+[Result "1-0"]
+[TimeControl "10+0.1"]
+[ECO "E10"]
+[Opening "Indian Defense: Anti-Nimzo-Indian"]
+
+1. d4 Nf6 2. c4 e6 3. Nf3 c5 4. g3 cxd4 5. Nxd4 Qb6 6. Bg2 Bc5 7. e3 Nc6 8. Nc2 Qa6 9. O-O Qxc4 10. b3 Qg4 11. Ba3 Qxd1 12. Rxd1 Bxa3 13. Nbxa3 a6 14. e4 d5 15. exd5 Nxd5 16. Nc4 Rb8 17. N2e3 Ncb4 18. a3 Nxe3 19. fxe3 Nc6 20. Rac1 e5 21. b4 Bd7 22. a4 Bg4 23. Rd2 O-O 24. b5 Nd8 25. Nxe5 Bf5 26. e4 Bc8 27. b6 Be6 28. Rc7 Re8 29. a5 g6 30. Rf2 g5 31. Bf1 g4 32. Be2 Kh8 33. Bxg4 Kg7 34. Bxe6 Nxe6 35. Rfxf7+ Kh8 36. Ng4 Ng7 37. Rxg7 Re6 38. Rxh7+ Kg8 39. Nh6+ Rxh6 40. Rxh6 Rc8 41. Rxc8+ Kf7 42. Rc7+ Ke8 43. Rh8# 1-0
