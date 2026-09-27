@@ -1,21 +1,21 @@
 # Tempo
 
 A chess engine written from scratch in C++20, with a neural-network evaluation trained on
-its own games. It plays at about **2990 on Stockfish 19's strength-limited scale** and runs
-live on Lichess as a BOT. Every strength change after the first version was kept or thrown out based
-on measured games, not intuition.
+its own games. It plays at about **2980 on Stockfish 19's strength-limited scale** and runs
+live on Lichess as a BOT. Every strength change after the first version was kept or thrown
+out based on measured games, not intuition.
 
-![Tempo's score against Stockfish 19 at each strength setting, v0.1 to v0.3](docs/strength.svg)
+![Tempo's score against Stockfish 19 at each strength setting, v0.1, v0.2 and v0.4](docs/strength.svg)
 
 ### Highlights
 
-- **Rated 2989 (95% CI 2946–3031)** against Stockfish 19's `UCI_Elo` levels, on one
+- **Rated 2976 (95% CI 2933–3019)** against Stockfish 19's `UCI_Elo` levels, on one
   thread, up from 2688 for the first version. It beats Stockfish's 2800 setting 70% of
-  the time and scores 33.5% against its maximum (3190).
-- **NNUE evaluation trained end to end on my own data.** I generated 80M self-play
+  the time and scores 27% against its maximum (3190).
+- **NNUE evaluation trained end to end on my own data.** I generated 120M self-play
   positions, trained in PyTorch on an RTX 4090, and run the net with integer inference in
-  C++. The first net won **+175 ± 32 Elo** against the hand-written eval; two more rounds
-  of retraining added **+129** and **+113**, both accepted by SPRT.
+  C++. The first net won **+175 ± 32 Elo** against the hand-written eval; three more rounds
+  of retraining added **+129**, **+113** and **+61** head to head, all accepted by SPRT.
 - **Lazy SMP multithreading: +269 ± 65 Elo** at 8 threads vs 1, with the same code.
 - **Move generation matches all 32 published perft counts** (610M nodes, 144M nodes/s) and
   a move-by-move diff against python-chess.
@@ -66,9 +66,14 @@ Texel-tuned evaluation and a larger network, lost games and were rejected (see b
   | net 1 vs hand-written eval | 13.9M positions (hand-written-eval self-play) | **+175 ± 32** (400 games) |
   | net 2 vs net 1 | same games, all 39.6M positions | **+129 ± 34**, SPRT accepted (264 games) |
   | net 3 vs net 2 | + 40M positions from net 1's own self-play | **+113 ± 28**, SPRT accepted (276 games) |
+  | net 4 vs net 3 | + 40M positions from net 3's own self-play | **+61 ± 20**, SPRT accepted (402 games) |
   | 512-unit net vs net 2 | same as net 2 | **−45 ± 21**, SPRT rejected (530 games) |
 
-  The 512-unit net had lower validation loss but evaluates at half the speed, and lost.
+  The 512-unit net had lower validation loss but evaluates at half the speed, and lost. The
+  net 4 gain was real head to head, but it did not carry over to the Stockfish gauntlet
+  (2976 vs 2989, well inside the error bars). Gains shrink as each round of self-play data
+  looks more like the last. Net 4 ships because it won the direct comparison and is no
+  worse against the outside reference.
 
 ### Search
 
@@ -121,24 +126,24 @@ Full game (v0.2): [`docs/mate_vs_sf2800.pgn`](docs/mate_vs_sf2800.pgn)
 
 Score against Stockfish 19, 100 games per level, 10s + 0.1s, one thread:
 
-| Stockfish `UCI_Elo` | v0.1 (PeSTO eval) | v0.2 (hand-written eval) | v0.3 (NNUE) |
-|---|---|---|---|
-| 1800 | 93.0% | 97.0% | |
-| 2200 | 90.0% | 92.0% | |
-| 2600 | 67.5% | 82.5% | |
-| 2800 | 36.0% | 41.5% | 70.0% |
-| 3000 | 17.0% | 19.0% | 43.5% |
-| 3190 (max) | 6.5% | 6.5% | 33.5% |
-| **fitted rating** | **2688** (2647–2728) | **2758** (2718–2797) | **2989** (2946–3031) |
+| Stockfish `UCI_Elo` | v0.1 (PeSTO eval) | v0.2 (hand-written eval) | v0.3 (NNUE net 3) | v0.4 (NNUE net 4) |
+|---|---|---|---|---|
+| 1800 | 93.0% | 97.0% | | |
+| 2200 | 90.0% | 92.0% | | |
+| 2600 | 67.5% | 82.5% | | |
+| 2800 | 36.0% | 41.5% | 70.0% | 70.0% |
+| 3000 | 17.0% | 19.0% | 43.5% | 45.5% |
+| 3190 (max) | 6.5% | 6.5% | 33.5% | 27.0% |
+| **fitted rating** | **2688** (2647–2728) | **2758** (2718–2797) | **2989** (2946–3031) | **2976** (2933–3019) |
 
-v0.3 was only run at the three top levels, where results are informative. All 1,500 games
-ended normally: no illegal moves, crashes or time forfeits. These ratings sit on
+v0.3 and v0.4 were only run at the three top levels, where results are informative. All
+1,800 games ended normally: no illegal moves, crashes or time forfeits. These ratings sit on
 Stockfish's own `UCI_Elo` scale at a fast time control. They are not a CCRL or Lichess
 rating.
 
 **On Lichess** ([prospedplayer](https://lichess.org/@/prospedplayer), live since
-2026-09-27): after its first 16 rated games against other bots, its blitz rating was 2554
-(8 W / 2 D / 6 L). The deployed bot runs 8 threads. It also takes early moves from the
+2026-09-27): after its first 27 rated games against other bots, its blitz rating was 2599
+(14 W / 3 D / 10 L). The deployed bot runs v0.4 on 8 threads. It also takes early moves from the
 Lichess masters database and uses the 7-piece tablebases. Those are external lookups; the
 engine's own search plays everything in between.
 
@@ -220,8 +225,9 @@ python tools/fit_rating.py mine
 - **Loss curves don't pick engines; games do.** Twice a lower-loss model lost: the Texel-tuned
   eval (−41 to −139 Elo) and the 512-unit network (−45). Net 2's validation loss was
   almost identical to net 1's, yet it won by 129 Elo.
-- **The data loop compounds.** Training on positions from the previous network's own games
-  was worth another +113 Elo on top of simply training longer on more data.
+- **The data loop compounds, then flattens.** Training on the previous network's own games
+  was worth +113 Elo, then +61 head to head. The +61 didn't show against Stockfish, so
+  self-play alone overstates late gains. An outside reference is what catches that.
 - **Deployment finds bugs tests don't.** A time-management flaw that every offline test
   missed showed up in the first real blitz game, where the engine was down to 28 seconds
   against its opponent's two minutes.
