@@ -4,6 +4,9 @@ Evaluates random positions three ways: the float model, a Python replica of
 the engine's integer arithmetic, and the engine itself. The engine must equal
 the integer replica exactly; the float gap is the cost of quantization.
 
+Each position is also reached by replaying its moves, which exercises the
+incrementally updated accumulator; that must agree with a fresh build too.
+
   python tools/nnue/verify.py src/nnue_weights.h.pt build/tempo.exe --hidden 256
 """
 
@@ -63,9 +66,17 @@ def main():
         return abs(num) // (QA * QB) * (1 if num >= 0 else -1)
 
     eng = subprocess.Popen([args.engine], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+    eng.stdin.write("setoption name UseNNUE value true\n")
+
+    def engine_eval(position):
+        eng.stdin.write(f"position {position}\nd\n")
+        eng.stdin.flush()
+        while not (line := eng.stdout.readline()).startswith("key"):
+            pass
+        return int(line.split()[-1])
 
     rng = random.Random(3)
-    diffs, mismatches = [], 0
+    diffs, mismatches, incremental_bad = [], 0, 0
     for _ in range(args.positions):
         board = chess.Board()
         for _ in range(rng.randint(0, 80)):
@@ -77,19 +88,18 @@ def main():
             f = features(record(board), "cpu")
             ref = net(*f).item() * SCALE
             exact = quantized(*f)
-        eng.stdin.write(f"position fen {board.fen()}\nd\n")
-        eng.stdin.flush()
-        while not (line := eng.stdout.readline()).startswith("key"):
-            pass
-        got = int(line.split()[-1])
+        got = engine_eval(f"fen {board.fen()}")
+        replayed = engine_eval("startpos moves " + " ".join(m.uci() for m in board.move_stack))
         diffs.append(abs(got - ref))
         mismatches += got != exact
+        incremental_bad += replayed != got
     eng.stdin.write("quit\n")
     eng.stdin.flush()
     d = np.array(diffs)
     print(f"{len(d)} positions: engine == integer replica in {len(d) - mismatches}; "
+          f"incremental == rebuilt in {len(d) - incremental_bad}; "
           f"quantization gap vs float: mean {d.mean():.2f} cp, max {d.max():.2f} cp")
-    raise SystemExit(0 if mismatches == 0 else 1)
+    raise SystemExit(0 if mismatches == 0 and incremental_bad == 0 else 1)
 
 
 if __name__ == "__main__":

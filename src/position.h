@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "bitboard.h"
+#include "nnue.h"
 #include "types.h"
 
 struct MoveList {
@@ -71,6 +72,10 @@ public:
 
     u64 compute_key() const;
 
+    // Kept current by do/undo_move when the NNUE is enabled at set_fen time.
+    const Accumulator& accumulator() const { return acc; }
+    bool tracks_accumulator() const { return trackAcc; }
+
 private:
     void put_piece(int pc, int sq);
     void remove_piece(int sq);
@@ -87,6 +92,9 @@ private:
     int fullmove = 1;
     u64 key = 0;
     std::vector<Undo> history;
+    Accumulator acc;
+    std::vector<Accumulator> accHistory;
+    bool trackAcc = false;
 };
 
 namespace zobrist {

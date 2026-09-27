@@ -1,5 +1,7 @@
 #include "position.h"
 
+#include "eval.h"
+
 #include <algorithm>
 #include <cstring>
 #include <sstream>
@@ -51,6 +53,7 @@ constexpr const char* PIECE_CHARS = "PNBRQKpnbrqk";
 } // namespace
 
 void Position::put_piece(int pc, int sq) {
+    if (trackAcc) nnue_add(acc, pc, sq);
     board[sq] = pc;
     pieces[type_of(pc)] |= bb(sq);
     colors[color_of(pc)] |= bb(sq);
@@ -59,6 +62,7 @@ void Position::put_piece(int pc, int sq) {
 
 void Position::remove_piece(int sq) {
     int pc = board[sq];
+    if (trackAcc) nnue_sub(acc, pc, sq);
     board[sq] = NO_PIECE;
     pieces[type_of(pc)] ^= bb(sq);
     colors[color_of(pc)] ^= bb(sq);
@@ -67,6 +71,10 @@ void Position::remove_piece(int sq) {
 
 void Position::move_piece(int from, int to) {
     int pc = board[from];
+    if (trackAcc) {
+        nnue_sub(acc, pc, from);
+        nnue_add(acc, pc, to);
+    }
     Bitboard fromTo = bb(from) | bb(to);
     board[to] = pc;
     board[from] = NO_PIECE;
@@ -86,6 +94,8 @@ bool Position::set_fen(const std::string& fen) {
     colors[WHITE] = colors[BLACK] = 0;
     key = 0;
     history.clear();
+    accHistory.clear();
+    trackAcc = false; // pieces are placed first, then the accumulator is built once
 
     int rank = 7, file = 0;
     for (char c : placement) {
@@ -123,6 +133,15 @@ bool Position::set_fen(const std::string& fen) {
     if (side == BLACK) key ^= zobrist::side;
     key ^= zobrist::castle[castling];
     if (ep != NO_SQ) key ^= zobrist::ep_file[file_of(ep)];
+
+    trackAcc = USE_NNUE;
+    if (trackAcc) {
+        nnue_reset(acc);
+        for (Bitboard b = occupied(); b;) {
+            const int sq = pop_lsb(b);
+            nnue_add(acc, board[sq], sq);
+        }
+    }
 
     // The side that just moved can't be left in check.
     return !attacked(king_sq(side ^ 1), side);
@@ -168,6 +187,7 @@ u64 Position::compute_key() const {
 
 void Position::do_move(Move m) {
     history.push_back({key, castling, ep, halfmove, NO_PIECE, m});
+    if (trackAcc) accHistory.push_back(acc);
     Undo& u = history.back();
 
     const int us = side, them = side ^ 1;
@@ -218,6 +238,9 @@ void Position::do_move(Move m) {
 void Position::undo_move() {
     const Undo u = history.back();
     history.pop_back();
+    // The accumulator is restored wholesale below, not replayed piece by piece.
+    const bool tracking = trackAcc;
+    trackAcc = false;
 
     side ^= 1;
     const int us = side;
@@ -239,6 +262,11 @@ void Position::undo_move() {
     castling = u.castling;
     ep = u.ep;
     halfmove = u.halfmove;
+    trackAcc = tracking;
+    if (tracking) {
+        acc = accHistory.back();
+        accHistory.pop_back();
+    }
 }
 
 // Repetition detection never looks back past a null move: halfmove is reset

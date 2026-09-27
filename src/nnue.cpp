@@ -3,21 +3,18 @@
 #include <algorithm>
 
 #include "nnue_weights.h"
+#include "position.h"
 
 namespace {
 
 using namespace nnue_weights;
+static_assert(HIDDEN == NNUE_HIDDEN, "nnue.h NNUE_HIDDEN must match the compiled-in network");
 
 // Feature index of a piece seen from `view`'s side: own pieces first, board
 // flipped vertically for black so both sides share one set of weights.
 inline int feature(int view, int pc, int sq) {
     const int c = color_of(pc), pt = type_of(pc);
     return view == WHITE ? c * 384 + pt * 64 + sq : (c ^ 1) * 384 + pt * 64 + (sq ^ 56);
-}
-
-inline void add_feature(std::int16_t* acc, int f) {
-    const std::int16_t* w = FT_WEIGHTS + f * HIDDEN;
-    for (int i = 0; i < HIDDEN; i++) acc[i] += w[i];
 }
 
 // SCReLU dot product: clamp(x)^2 * w, summed in 64 bits (a single term can
@@ -33,16 +30,37 @@ inline std::int64_t screlu_dot(const std::int16_t* acc, const std::int16_t* w) {
 
 } // namespace
 
+void nnue_reset(Accumulator& acc) {
+    std::copy(FT_BIAS, FT_BIAS + HIDDEN, acc.v[WHITE]);
+    std::copy(FT_BIAS, FT_BIAS + HIDDEN, acc.v[BLACK]);
+}
+
+void nnue_add(Accumulator& acc, int pc, int sq) {
+    for (int view = WHITE; view <= BLACK; view++) {
+        const std::int16_t* w = FT_WEIGHTS + feature(view, pc, sq) * HIDDEN;
+        for (int i = 0; i < HIDDEN; i++) acc.v[view][i] += w[i];
+    }
+}
+
+void nnue_sub(Accumulator& acc, int pc, int sq) {
+    for (int view = WHITE; view <= BLACK; view++) {
+        const std::int16_t* w = FT_WEIGHTS + feature(view, pc, sq) * HIDDEN;
+        for (int i = 0; i < HIDDEN; i++) acc.v[view][i] -= w[i];
+    }
+}
+
 int nnue_evaluate(const Position& pos) {
-    alignas(64) std::int16_t acc[2][HIDDEN];
-    std::copy(FT_BIAS, FT_BIAS + HIDDEN, acc[WHITE]);
-    std::copy(FT_BIAS, FT_BIAS + HIDDEN, acc[BLACK]);
-    for (Bitboard b = pos.occupied(); b;) {
-        const int sq = pop_lsb(b), pc = pos.piece_on(sq);
-        add_feature(acc[WHITE], feature(WHITE, pc, sq));
-        add_feature(acc[BLACK], feature(BLACK, pc, sq));
+    Accumulator scratch;
+    const Accumulator* acc = &pos.accumulator();
+    if (!pos.tracks_accumulator()) {
+        nnue_reset(scratch);
+        for (Bitboard b = pos.occupied(); b;) {
+            const int sq = pop_lsb(b);
+            nnue_add(scratch, pos.piece_on(sq), sq);
+        }
+        acc = &scratch;
     }
     const int us = pos.side_to_move();
-    const std::int64_t sum = screlu_dot(acc[us], OUT_WEIGHTS) + screlu_dot(acc[us ^ 1], OUT_WEIGHTS + HIDDEN);
+    const std::int64_t sum = screlu_dot(acc->v[us], OUT_WEIGHTS) + screlu_dot(acc->v[us ^ 1], OUT_WEIGHTS + HIDDEN);
     return int((sum / QA + OUT_BIAS) * SCALE / (std::int64_t(QA) * QB));
 }
