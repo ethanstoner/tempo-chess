@@ -239,3 +239,7 @@ python tools/fit_rating.py mine
 The hand-written eval's starting piece-square tables and material values are PeSTO's (Ronald
 Friederich, via the Chess Programming Wiki). `lichess-bot`, fastchess, Stockfish and the
 8-move opening book are external projects downloaded at setup, not vendored.
+
+## License
+
+No license has been chosen yet, so all rights are reserved by default.
