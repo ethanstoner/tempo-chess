@@ -34,7 +34,7 @@ struct EvalTrace {
     int phase;
 };
 
-// Selects the neural network or the hand-written evaluation.
+// Selects the neural network (default) or the hand-written evaluation.
 extern bool USE_NNUE;
 
 void init_eval();

@@ -7,7 +7,7 @@
 #include "pesto_tables.h"
 
 Score PARAMS[param::COUNT];
-bool USE_NNUE = false; // switched on once a trained network beats the hand-written eval
+bool USE_NNUE = true;
 
 namespace {
 

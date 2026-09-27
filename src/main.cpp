@@ -175,7 +175,7 @@ int main(int argc, char** argv) {
             std::printf("option name Hash type spin default 64 min 1 max 4096\n");
             std::printf("option name Threads type spin default 1 min 1 max 128\n");
             std::printf("option name Move Overhead type spin default 50 min 0 max 5000\n");
-            std::printf("option name UseNNUE type check default false\n");
+            std::printf("option name UseNNUE type check default true\n");
             std::printf("uciok\n");
         } else if (cmd == "isready") {
             std::printf("readyok\n");
