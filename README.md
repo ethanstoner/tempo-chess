@@ -20,7 +20,7 @@ out based on measured games, not intuition.
 - **Move generation matches all 32 published perft counts** (610M nodes, 144M nodes/s) and
   a move-by-move diff against python-chess.
 - **Live on Lichess** as [prospedplayer](https://lichess.org/@/prospedplayer) through the
-  official `lichess-bot` bridge.
+  official `lichess-bot` bridge, rated around 2600 blitz against other bots.
 
 **C++20 · CMake · Python · PyTorch · CUDA · fastchess · Stockfish (as a sparring partner) · lichess-bot**
 
@@ -34,6 +34,22 @@ inference. The interesting part is the method. Correctness is pinned by perft an
 oracles, strength is measured against a fixed reference opponent, and each strength change after the
 first version had to win games before it was kept. Several changes I expected to help, a
 Texel-tuned evaluation and a larger network, lost games and were rejected (see below).
+
+## Architecture
+
+```
+UCI loop (main.cpp) ──► Engine: N threads (Lazy SMP) ──► Search (search.cpp) ◄── shared TT (tt.h)
+                                                          │ iterative deepening → PVS → quiescence
+                                                          ▼
+                       Position (position.cpp) ◄── bitboards / magic sliders (bitboard.cpp)
+                          │ make/unmake, legality, SEE, Zobrist, NNUE accumulator
+                          ▼
+                       Evaluation: NNUE (nnue.cpp, default) or hand-written (eval.cpp)
+
+Training loop:  tempo datagen ──► data/*.bin ──► tools/nnue/train.py (GPU) ──► src/nnue_weights.h
+                                                        │
+                                  verify.py (exactness) + SPRT vs previous net ──► ship or reject
+```
 
 ## Engineering Highlights
 
@@ -142,32 +158,16 @@ Stockfish's own `UCI_Elo` scale at a fast time control. They are not a CCRL or L
 rating.
 
 **On Lichess** ([prospedplayer](https://lichess.org/@/prospedplayer), live since
-2026-09-27): after its first 27 rated games against other bots, its blitz rating was 2599
-(14 W / 3 D / 10 L). The deployed bot runs v0.4 on 8 threads. It also takes early moves from the
-Lichess masters database and uses the 7-piece tablebases. Those are external lookups; the
-engine's own search plays everything in between.
-
-## Architecture
-
-```
-UCI loop (main.cpp) ──► Engine: N threads (Lazy SMP) ──► Search (search.cpp) ◄── shared TT (tt.h)
-                                                          │ iterative deepening → PVS → quiescence
-                                                          ▼
-                       Position (position.cpp) ◄── bitboards / magic sliders (bitboard.cpp)
-                          │ make/unmake, legality, SEE, Zobrist, NNUE accumulator
-                          ▼
-                       Evaluation: NNUE (nnue.cpp, default) or hand-written (eval.cpp)
-
-Training loop:  tempo datagen ──► data/*.bin ──► tools/nnue/train.py (GPU) ──► src/nnue_weights.h
-                                                        │
-                                  verify.py (exactness) + SPRT vs previous net ──► ship or reject
-```
+2026-09-27) it plays rated games against other bots at around 2600 blitz; the profile has the
+current rating and every game. The deployed bot runs v0.4 on 8 threads. It also takes early
+moves from the Lichess masters database and uses the 7-piece tablebases. Those are external
+lookups; the engine's own search plays everything in between.
 
 ## Getting Started
 
 Needs CMake 3.20+ and a C++20 compiler. Built and tested with GCC 16.2 (mingw-w64,
-Windows). The pre-NNUE engine was also built with GCC 13.3 on Ubuntu (WSL) and gave the same
-`bench` node count; the NNUE build has only been tested on Windows.
+Windows) and GCC 13.3 (Ubuntu under WSL). On both, `perft.py --deep` and `test_engine.py`
+pass and `bench` gives the same node count.
 
 ```sh
 cmake -S . -B build -G Ninja
