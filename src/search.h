@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <memory>
 #include <vector>
 
 #include "position.h"
@@ -24,17 +25,38 @@ struct SearchResult {
     i64 nodes = 0;
 };
 
+// State every search thread shares: the hash table and the stop signal.
+struct SharedState {
+    TranspositionTable tt;
+    std::atomic<bool> stop{false};
+};
+
 class Search {
 public:
+    // Without a SharedState the search owns a private one (bench, tuner).
+    explicit Search(SharedState* shared = nullptr, int id = 0);
+    Search(const Search&) = delete;
+    Search& operator=(const Search&) = delete;
+
     SearchResult go(Position& pos, const Limits& limits, bool verbose);
     void clear();
     int quiet_score(Position& pos); // quiescence score, side to move's view
+    i64 node_count() const { return publishedNodes.load(std::memory_order_relaxed); }
+    TranspositionTable& table() { return tt; }
 
-    std::atomic<bool> stop{false};
-    TranspositionTable tt;
+    // Other threads' node counts, for the "nodes"/"nps" the main thread reports.
+    const std::vector<std::unique_ptr<Search>>* pool = nullptr;
     int moveOverhead = 50;
 
 private:
+    std::unique_ptr<SharedState> owned;
+    SharedState& shared;
+    TranspositionTable& tt;
+    std::atomic<bool>& stop;
+    const int id;
+    std::atomic<i64> publishedNodes{0};
+    i64 total_nodes() const;
+
     int negamax(Position& pos, int alpha, int beta, int depth, int ply, bool doNull);
     int qsearch(Position& pos, int alpha, int beta, int ply);
     void score_moves(const Position& pos, MoveList& list, int* scores, Move ttMove, int ply) const;
@@ -63,6 +85,23 @@ private:
     int staticEval[MAX_PLY] = {};
     Move pv[MAX_PLY][MAX_PLY] = {};
     int pvLen[MAX_PLY] = {};
+};
+
+// Lazy SMP: every thread searches the same root with its own move-ordering
+// tables, and they cooperate only through the shared hash table. Thread 0
+// owns the clock and reports; the others stop when it does.
+class Engine {
+public:
+    Engine() { set_threads(1); }
+    void set_threads(int n);
+    SearchResult go(Position& pos, const Limits& limits, bool verbose);
+    void clear();
+
+    SharedState shared;
+    int moveOverhead = 50;
+
+private:
+    std::vector<std::unique_ptr<Search>> workers;
 };
 
 void init_search();

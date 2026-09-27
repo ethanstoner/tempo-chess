@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <thread>
 
 #include "eval.h"
 
@@ -48,8 +49,19 @@ void init_search() {
         for (int m = 1; m < 64; m++) LMR[d][m] = int(0.75 + std::log(d) * std::log(m) / 2.25);
 }
 
+Search::Search(SharedState* s, int id_)
+    : owned(s ? nullptr : std::make_unique<SharedState>()), shared(s ? *s : *owned), tt(shared.tt),
+      stop(shared.stop), id(id_) {}
+
+i64 Search::total_nodes() const {
+    if (!pool) return nodes;
+    i64 total = 0;
+    for (const auto& w : *pool) total += w.get() == this ? nodes : w->node_count();
+    return total;
+}
+
 void Search::clear() {
-    tt.clear();
+    if (owned) tt.clear(); // a shared table is cleared once by the Engine
     std::memset(history, 0, sizeof(history));
     std::memset(killers, 0, sizeof(killers));
     std::fill(contHist.begin(), contHist.end(), 0);
@@ -60,6 +72,8 @@ i64 Search::elapsed() const {
 }
 
 void Search::check_limits() {
+    publishedNodes.store(nodes, std::memory_order_relaxed);
+    if (id != 0) return; // helpers stop when thread 0 raises the shared flag
     if (rootDepth <= 1) return; // always finish depth 1 so there is a move to play
     if (limits.nodes && nodes >= limits.nodes) stop = true;
     if (hardLimit && elapsed() >= hardLimit) stop = true;
@@ -116,7 +130,8 @@ int Search::qsearch(Position& pos, int alpha, int beta, int ply) {
     const bool inCheck = pos.in_check();
     if (ply >= MAX_PLY - 1) return inCheck ? 0 : evaluate(pos);
 
-    const TTEntry* e = tt.probe(pos.hash());
+    TTEntry entry;
+    const TTEntry* e = tt.probe(pos.hash(), entry) ? &entry : nullptr;
     Move ttMove = e ? e->move : NO_MOVE;
     if (e) {
         int s = score_from_tt(e->score, ply);
@@ -188,7 +203,8 @@ int Search::negamax(Position& pos, int alpha, int beta, int depth, int ply, bool
         if (alpha >= beta) return alpha;
     }
 
-    const TTEntry* e = tt.probe(pos.hash());
+    TTEntry entry;
+    const TTEntry* e = tt.probe(pos.hash(), entry) ? &entry : nullptr;
     const Move ttMove = e ? e->move : NO_MOVE;
     if (e && !pvNode && e->depth >= depth) {
         int s = score_from_tt(e->score, ply);
@@ -308,10 +324,10 @@ int Search::negamax(Position& pos, int alpha, int beta, int depth, int ply, bool
 SearchResult Search::go(Position& pos, const Limits& lim, bool verbose) {
     limits = lim;
     start = std::chrono::steady_clock::now();
-    stop = false;
+    if (owned) stop = false; // with shared state the Engine resets the flag
     nodes = 0;
     rootBest = NO_MOVE;
-    tt.new_search();
+    if (id == 0) tt.new_search();
     std::memset(killers, 0, sizeof(killers));
 
     softLimit = hardLimit = 0;
@@ -333,7 +349,7 @@ SearchResult Search::go(Position& pos, const Limits& lim, bool verbose) {
 
     SearchResult result;
     int prevScore = 0;
-    for (rootDepth = 1; rootDepth <= limits.depth; rootDepth++) {
+    for (rootDepth = 1 + (id % 2); rootDepth <= limits.depth; rootDepth++) {
         seldepth = 0;
         int delta = 25, alpha = -INF, beta = INF, score;
         if (rootDepth >= 5) {
@@ -364,9 +380,10 @@ SearchResult Search::go(Position& pos, const Limits& lim, bool verbose) {
 
         if (verbose) {
             i64 ms = elapsed();
+            const i64 all = total_nodes();
             std::string line = "info depth " + std::to_string(rootDepth) + " seldepth " + std::to_string(seldepth) +
-                               " score " + score_string(score) + " nodes " + std::to_string(nodes) + " nps " +
-                               std::to_string(nodes * 1000 / std::max<i64>(ms, 1)) + " time " + std::to_string(ms) +
+                               " score " + score_string(score) + " nodes " + std::to_string(all) + " nps " +
+                               std::to_string(all * 1000 / std::max<i64>(ms, 1)) + " time " + std::to_string(ms) +
                                " hashfull " + std::to_string(tt.hashfull()) + " pv";
             for (int i = 0; i < pvLen[0]; i++) line += " " + move_to_uci(pv[0][i]);
             std::printf("%s\n", line.c_str());
@@ -389,6 +406,39 @@ SearchResult Search::go(Position& pos, const Limits& lim, bool verbose) {
             }
     }
     result.nodes = nodes;
+    publishedNodes.store(nodes, std::memory_order_relaxed);
+    return result;
+}
+
+void Engine::set_threads(int n) {
+    workers.clear();
+    for (int i = 0; i < std::max(1, n); i++) {
+        workers.push_back(std::make_unique<Search>(&shared, i));
+        workers.back()->pool = &workers;
+    }
+}
+
+void Engine::clear() {
+    shared.tt.clear();
+    for (auto& w : workers) w->clear();
+}
+
+SearchResult Engine::go(Position& pos, const Limits& limits, bool verbose) {
+    shared.stop = false;
+    workers[0]->moveOverhead = moveOverhead;
+
+    Limits helperLimits;
+    helperLimits.depth = limits.depth;
+    std::vector<std::thread> helpers;
+    for (size_t i = 1; i < workers.size(); i++)
+        helpers.emplace_back([this, i, copy = pos, helperLimits]() mutable { workers[i]->go(copy, helperLimits, false); });
+
+    SearchResult result = workers[0]->go(pos, limits, verbose);
+    shared.stop = true;
+    for (auto& t : helpers) t.join();
+
+    result.nodes = 0;
+    for (auto& w : workers) result.nodes += w->node_count();
     return result;
 }
 

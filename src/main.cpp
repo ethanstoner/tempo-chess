@@ -55,7 +55,7 @@ void perft_divide(Position& pos, int depth) {
 // Fixed-depth search over a spread of middlegame and endgame positions. The
 // node total is a deterministic signature: any change to it means search
 // behaviour changed.
-void bench(Search& search, int depth) {
+void bench(Engine& search, int depth) {
     static const char* FENS[] = {
         "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
         "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1",
@@ -136,7 +136,7 @@ int main(int argc, char** argv) {
     init_eval();
     init_search();
 
-    Search search;
+    Engine search;
     Position pos;
 
     if (argc > 1 && std::string(argv[1]) == "bench") {
@@ -149,7 +149,7 @@ int main(int argc, char** argv) {
         if (worker.joinable()) worker.join();
     };
     auto stop_search = [&] {
-        search.stop = true;
+        search.shared.stop = true;
         join();
     };
 
@@ -162,7 +162,7 @@ int main(int argc, char** argv) {
         if (cmd == "uci") {
             std::printf("id name %s\nid author Ethan Stoner\n", ENGINE_NAME);
             std::printf("option name Hash type spin default 64 min 1 max 4096\n");
-            std::printf("option name Threads type spin default 1 min 1 max 1\n");
+            std::printf("option name Threads type spin default 1 min 1 max 128\n");
             std::printf("option name Move Overhead type spin default 50 min 0 max 5000\n");
             std::printf("uciok\n");
         } else if (cmd == "isready") {
@@ -173,7 +173,8 @@ int main(int argc, char** argv) {
             while (in >> token && token != "value") name += (name.empty() ? "" : " ") + token;
             in >> value;
             stop_search();
-            if (name == "Hash") search.tt.resize(std::clamp(std::atoi(value.c_str()), 1, 4096));
+            if (name == "Hash") search.shared.tt.resize(std::clamp(std::atoi(value.c_str()), 1, 4096));
+            else if (name == "Threads") search.set_threads(std::clamp(std::atoi(value.c_str()), 1, 128));
             else if (name == "Move Overhead") search.moveOverhead = std::max(0, std::atoi(value.c_str()));
         } else if (cmd == "ucinewgame") {
             stop_search();
@@ -196,7 +197,7 @@ int main(int argc, char** argv) {
             worker = std::thread([&search, lim, copy = pos]() mutable {
                 SearchResult r = search.go(copy, lim, true);
                 // UCI forbids sending bestmove during "go infinite" until told to stop.
-                while (lim.infinite && !search.stop) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+                while (lim.infinite && !search.shared.stop) std::this_thread::sleep_for(std::chrono::milliseconds(5));
                 std::printf("bestmove %s\n", move_to_uci(r.best).c_str());
                 std::fflush(stdout);
             });

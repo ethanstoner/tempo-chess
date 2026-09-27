@@ -97,7 +97,7 @@ Dataset load(const char* path) {
     std::atomic<size_t> skipped{0};
     parallel_for(lines.size(), [&](unsigned t, size_t lo, size_t hi) {
         Search search;
-        search.tt.resize(1);
+        search.table().resize(1);
         Position pos;
         EvalTrace trace;
         for (size_t i = lo; i < hi; i++) {

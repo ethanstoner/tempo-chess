@@ -31,9 +31,10 @@ public:
     void clear() { std::fill(table.begin(), table.end(), TTEntry{}); }
     void new_search() { generation = (generation + 1) & 63; }
 
-    const TTEntry* probe(u64 key) const {
-        const TTEntry& e = table[key & mask];
-        return (e.key == key && (e.flag & 3)) ? &e : nullptr;
+    // Copies the entry out: other search threads may overwrite the slot.
+    bool probe(u64 key, TTEntry& out) const {
+        out = table[key & mask];
+        return out.key == key && (out.flag & 3);
     }
 
     void store(u64 key, Move move, int score, int eval, int depth, TTFlag flag) {
