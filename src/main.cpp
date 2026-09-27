@@ -12,7 +12,7 @@
 
 namespace {
 
-constexpr const char* ENGINE_NAME = "Tempo 0.2";
+constexpr const char* ENGINE_NAME = "Tempo 0.3";
 
 u64 perft(Position& pos, int depth) {
     MoveList list;

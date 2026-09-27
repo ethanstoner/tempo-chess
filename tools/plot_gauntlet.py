@@ -14,7 +14,10 @@ ROOT = Path(__file__).resolve().parent.parent
 LEVELS = [1800, 2200, 2600, 2800, 3000, 3190]
 W, H = 720, 380
 L, R, T, B = 64, 40, 84, 56
-COLORS = [("#eb6834", "#d95926"), ("#2a78d6", "#3987e5")]  # older build orange, newest blue
+# (light, dark) per series, oldest first; the newest build always gets blue.
+COLORS = {1: [("#2a78d6", "#3987e5")],
+          2: [("#eb6834", "#d95926"), ("#2a78d6", "#3987e5")],
+          3: [("#1baf7a", "#199e70"), ("#eb6834", "#d95926"), ("#2a78d6", "#3987e5")]}
 
 
 def score(tag, level):
@@ -39,7 +42,7 @@ def main():
     series = [arg.split(":", 1) for arg in sys.argv[1:]]
     css_light, css_dark, marks, all_pts = [], [], [], []
     for i, (tag, label) in enumerate(series):
-        light, dark = COLORS[i % 2]
+        light, dark = COLORS[len(series)][i]
         css_light.append(f".l{i}{{stroke:{light}}} .d{i}{{fill:{light}}}")
         css_dark.append(f".l{i}{{stroke:{dark}}} .d{i}{{fill:{dark}}}")
         pts = [(lv, score(tag, lv)) for lv in LEVELS]
@@ -55,15 +58,18 @@ def main():
         marks.append(f'<circle class="d{i}" cx="{lx + 5}" cy="{T - 12}" r="5"/>'
                      f'<text class="lbl" x="{lx + 16}" y="{T - 8}">{label}</text>')
 
-    # Direct labels where the lines are furthest apart, highest above, lowest below.
-    common = [lv for lv in LEVELS if all(lv in s for s in all_pts)]
-    spot = max(common, key=lambda lv: max(s[lv] for s in all_pts) - min(s[lv] for s in all_pts))
-    order = sorted(range(len(series)), key=lambda i: -all_pts[i][spot])
-    for rank, i in enumerate(order):
-        dx, dy, anchor = (8, -12, "start") if rank == 0 else (-12, 16, "end")
-        marks.append(f'<text class="lbl" x="{x_of(spot) + dx:.1f}" y="{y_of(all_pts[i][spot]) + dy:.1f}" '
-                     f'text-anchor="{anchor}">'
-                     f'{series[i][1]}</text>')
+    # Direct label for each series at the level where it sits furthest from
+    # the others: above the point if it is the highest line there, else below.
+    for i, pts_i in enumerate(all_pts):
+        def gap(lv):
+            others = [p[lv] for j, p in enumerate(all_pts) if j != i and lv in p]
+            return min((abs(pts_i[lv] - o) for o in others), default=100)
+        lv = max(pts_i, key=lambda k: (gap(k), -abs(k - 2600)))
+        others = [p[lv] for j, p in enumerate(all_pts) if j != i and lv in p]
+        above = all(pts_i[lv] >= o for o in others)
+        dx, dy, anchor = (8, -12, "start") if above else (-12, 18, "end")
+        marks.append(f'<text class="lbl" x="{x_of(lv) + dx:.1f}" y="{y_of(pts_i[lv]) + dy:.1f}" '
+                     f'text-anchor="{anchor}">{series[i][1]}</text>')
 
     grid = []
     for pct in (0, 25, 50, 75, 100):
@@ -85,7 +91,7 @@ def main():
 </style>
 <rect class="bg" width="{W}" height="{H}" rx="8"/>
 <text class="title" x="{L}" y="26">Score against Stockfish 19 at each UCI_Elo limit</text>
-<text class="sub" x="{L}" y="42">100 games per point, 10s + 0.1s, 8-move opening book, both colours per opening</text>
+<text class="sub" x="{L}" y="42">100 games per point, 10s + 0.1s, one thread, 8-move opening book, both colours per opening</text>
 {"".join(grid)}
 <text class="axis" x="{(L + W - R) / 2:.0f}" y="{H - 8}" text-anchor="middle">Stockfish UCI_Elo setting</text>
 {"".join(marks)}
