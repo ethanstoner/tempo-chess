@@ -9,3 +9,4 @@ matches/
 deploy/lichess-bot/
 deploy/venv/
 deploy/bot.log
+data/

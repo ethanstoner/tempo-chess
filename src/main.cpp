@@ -6,6 +6,7 @@
 #include <string>
 #include <thread>
 
+#include "datagen.h"
 #include "eval.h"
 #include "search.h"
 
@@ -139,6 +140,16 @@ int main(int argc, char** argv) {
     Engine search;
     Position pos;
 
+    if (argc > 1 && std::string(argv[1]) == "datagen") {
+        if (argc < 6) {
+            std::printf("usage: tempo datagen <out.bin> <positions> <threads> <nodes-per-move> [hce|nnue]\n");
+            return 1;
+        }
+        USE_NNUE = argc > 6 && std::string(argv[6]) == "nnue";
+        std::printf("datagen with the %s evaluation\n", USE_NNUE ? "NNUE" : "hand-written");
+        run_datagen(argv[2], std::atoll(argv[3]), std::atoi(argv[4]), std::atoi(argv[5]));
+        return 0;
+    }
     if (argc > 1 && std::string(argv[1]) == "bench") {
         bench(search, argc > 2 ? std::atoi(argv[2]) : 10);
         return 0;
@@ -164,6 +175,7 @@ int main(int argc, char** argv) {
             std::printf("option name Hash type spin default 64 min 1 max 4096\n");
             std::printf("option name Threads type spin default 1 min 1 max 128\n");
             std::printf("option name Move Overhead type spin default 50 min 0 max 5000\n");
+            std::printf("option name UseNNUE type check default false\n");
             std::printf("uciok\n");
         } else if (cmd == "isready") {
             std::printf("readyok\n");
@@ -175,6 +187,7 @@ int main(int argc, char** argv) {
             stop_search();
             if (name == "Hash") search.shared.tt.resize(std::clamp(std::atoi(value.c_str()), 1, 4096));
             else if (name == "Threads") search.set_threads(std::clamp(std::atoi(value.c_str()), 1, 128));
+            else if (name == "UseNNUE") USE_NNUE = value == "true";
             else if (name == "Move Overhead") search.moveOverhead = std::max(0, std::atoi(value.c_str()));
         } else if (cmd == "ucinewgame") {
             stop_search();

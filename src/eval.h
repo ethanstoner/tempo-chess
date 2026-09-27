@@ -34,6 +34,9 @@ struct EvalTrace {
     int phase;
 };
 
+// Selects the neural network or the hand-written evaluation.
+extern bool USE_NNUE;
+
 void init_eval();
 int evaluate(const Position& pos);   // side to move's point of view
 int evaluate_white(const Position& pos, EvalTrace* trace);

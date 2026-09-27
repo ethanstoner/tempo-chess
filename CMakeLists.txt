@@ -14,6 +14,8 @@ add_library(tempo_core STATIC
   src/position.cpp
   src/search.cpp
   src/eval.cpp
+  src/datagen.cpp
+  src/nnue.cpp
 )
 target_compile_options(tempo_core PUBLIC -Wall -Wextra)
 if(TEMPO_NATIVE)

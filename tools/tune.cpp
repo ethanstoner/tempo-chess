@@ -168,6 +168,7 @@ int main(int argc, char** argv) {
     init_bitboards();
     zobrist::init();
     init_eval();
+    USE_NNUE = false; // the tuner fits the hand-written evaluation
     init_search();
 
     Dataset d = load(argv[1]);

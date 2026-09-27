@@ -3,9 +3,11 @@
 #include <algorithm>
 
 #include "eval_params.h"
+#include "nnue.h"
 #include "pesto_tables.h"
 
 Score PARAMS[param::COUNT];
+bool USE_NNUE = false; // switched on once a trained network beats the hand-written eval
 
 namespace {
 
@@ -159,6 +161,7 @@ int evaluate_white(const Position& pos, EvalTrace* trace) {
 }
 
 int evaluate(const Position& pos) {
+    if (USE_NNUE) return nnue_evaluate(pos);
     const int v = evaluate_white(pos, nullptr);
     return pos.side_to_move() == WHITE ? v : -v;
 }
