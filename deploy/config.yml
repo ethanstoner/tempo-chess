@@ -38,7 +38,7 @@ engine:
       move_quality: "best"
   uci_options:
     Hash: 256
-    Threads: 4
+    Threads: 8
     Move Overhead: 100
 
 abort_time: 30
