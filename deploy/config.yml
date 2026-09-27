@@ -18,9 +18,24 @@ engine:
     offer_draw_score: 0
     offer_draw_moves: 10
     offer_draw_pieces: 10
+  # External knowledge, used where it is exact or near-exact: the Lichess
+  # masters database for the first moves, and 7-piece tablebases (perfect play)
+  # in the endgame. Everything in between is Tempo's own search.
   online_moves:
+    max_out_of_book_moves: 3
+    max_depth: 12
+    lichess_opening_explorer:
+      enabled: true
+      min_time: 20
+      source: "masters"
+      sort: "winrate"
+      min_games: 25
     online_egtb:
-      enabled: false
+      enabled: true
+      min_time: 10
+      max_pieces: 7
+      source: "lichess"
+      move_quality: "best"
   uci_options:
     Hash: 256
     Move Overhead: 100

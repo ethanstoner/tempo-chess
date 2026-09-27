@@ -321,11 +321,14 @@ SearchResult Search::go(Position& pos, const Limits& lim, bool verbose) {
     } else if (limits.time[us] && !limits.infinite) {
         const i64 t = std::max<i64>(1, limits.time[us] - moveOverhead);
         const i64 inc = limits.inc[us];
-        const int mtg = limits.movestogo ? std::min(limits.movestogo, 40) : 30;
-        softLimit = std::min(t, t / mtg + inc * 3 / 4);
-        hardLimit = std::min(t * 3 / 10 + inc / 2, softLimit * 3);
-        hardLimit = std::max<i64>(1, std::min(hardLimit, t));
-        softLimit = std::min(softLimit, hardLimit);
+        const int mtg = limits.movestogo ? std::min(limits.movestogo, 40) : 40;
+        const i64 optimum = t / mtg + inc * 4 / 5;
+        // Each iteration costs roughly twice the previous one, so a new
+        // iteration only starts in the first half of the budget; the hard
+        // limit bounds the overshoot and never exceeds 1/8 of the clock.
+        hardLimit = std::min({optimum * 3, t / 8 + inc / 2, t / 2});
+        hardLimit = std::max<i64>(1, hardLimit);
+        softLimit = std::min(optimum / 2, hardLimit);
     }
 
     SearchResult result;
