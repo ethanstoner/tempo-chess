@@ -50,7 +50,7 @@ challenge:
 greeting:
   hello: "Hi, I'm {me}, a chess engine written from scratch in C++. Good luck!"
   goodbye: "Good game!"
-  hello_spectators: "Source and test results: https://github.com/ethanstoner/tempo-chess"
+  hello_spectators: "Tempo: a chess engine written from scratch in C++. Enjoy the game!"
   goodbye_spectators: "Thanks for watching!"
 
 # Seeks rated games against other bots while idle, so the rating keeps moving.
