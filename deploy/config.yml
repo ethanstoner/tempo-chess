@@ -28,7 +28,7 @@ engine:
       enabled: true
       min_time: 20
       source: "masters"
-      sort: "winrate"
+      sort: "games_played"  # main lines; "winrate" steered Black into 1...g6 ...d6 ...a6
       min_games: 25
     online_egtb:
       enabled: true
@@ -46,7 +46,7 @@ move_overhead: 1000
 max_takebacks_accepted: 0
 
 challenge:
-  concurrency: 2
+  concurrency: 1              # one game at a time: 8 search threads without contention
   accept_bot: true
   only_bot: false
   max_increment: 20
