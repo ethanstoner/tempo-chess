@@ -165,27 +165,41 @@ lookups; the engine's own search plays everything in between.
 
 ## Getting Started
 
-Needs CMake 3.20+ and a C++20 compiler. Built and tested with GCC 16.2 (mingw-w64,
-Windows) and GCC 13.3 (Ubuntu under WSL). On both, `perft.py --deep` and `test_engine.py`
-pass and `bench` gives the same node count.
+Needs CMake 3.20+, Ninja and GCC with C++20 support. The trained network ships in the
+repo (`src/nnue_weights.h`, about 0.9 MB), so no download is needed. Built and tested with
+GCC 16.2 (mingw-w64, Windows) and GCC 13.3 (Ubuntu 24.04). On both, `perft.py --deep` and
+`test_engine.py` pass and `bench` gives the same node count. On Windows use a MinGW-w64 GCC
+(for example w64devkit or MSYS2); the build uses GCC flags, so MSVC is not supported.
 
 ```sh
+git clone https://github.com/ethanstoner/tempo-chess.git
+cd tempo-chess
 cmake -S . -B build -G Ninja
 cmake --build build
 ./build/tempo            # UCI engine; options: Threads, Hash, UseNNUE, Move Overhead
 ./build/tempo bench      # fixed-depth search signature + nodes/s
 ```
 
-Training a network (needs PyTorch; CUDA recommended):
+The build tunes for the local CPU (`-march=native`). For a binary to copy to another
+machine, configure with `-DTEMPO_NATIVE=OFF`.
+
+Training a network (needs PyTorch and NumPy; CUDA recommended):
 
 ```sh
 ./build/tempo datagen data/gen.bin 40000000 24 5000 nnue   # positions, threads, nodes/move
 python tools/nnue/train.py data/gen.bin --hidden 256 --epochs 20 --out src/nnue_weights.h
-python tools/nnue/verify.py src/nnue_weights.h.pt build/tempo.exe   # after rebuilding
+cmake --build build                                        # rebuild with the new net
+python tools/nnue/verify.py src/nnue_weights.h.pt build/tempo   # build/tempo.exe on Windows
 ```
 
-Playing on Lichess needs a fresh account that has never played a game and a token with the
-`bot:play` scope:
+### Running it on Lichess
+
+Needs a fresh Lichess account that has never played a game and an API token with the
+`bot:play` scope. The token is read only from the `LICHESS_BOT_TOKEN` environment variable;
+`deploy/config.yml` holds a placeholder and never the real token. The scripts clone the
+official `lichess-bot` into `deploy/lichess-bot/` and set up a Python venv on first run.
+
+Windows (PowerShell):
 
 ```powershell
 $env:LICHESS_BOT_TOKEN = "lip_..."
@@ -193,14 +207,31 @@ $env:LICHESS_BOT_TOKEN = "lip_..."
 .\deploy\run.ps1
 ```
 
-## Testing
+Linux / macOS:
 
 ```sh
+export LICHESS_BOT_TOKEN=lip_...
+./deploy/run.sh -u          # once: converts the account to a BOT (irreversible)
+./deploy/run.sh
+```
+
+## Testing
+
+The Python tests need `python-chess` and run against `build/tempo`:
+
+```sh
+pip install chess
 python tests/perft.py --deep     # 32 published perft counts + 200-position python-chess diff
 python tests/test_engine.py      # Zobrist, eval symmetry, 13 forced mates, UCI stop, time use
-python tools/nnue/verify.py ...  # NNUE exactness vs integer replica, incremental vs rebuilt
-./deploy/test_lichess.ps1        # full game through lichess-bot's mocked lichess.org
 ```
+
+Two more checks need extra setup:
+
+- `tools/nnue/verify.py` (NNUE exactness vs integer replica, incremental vs rebuilt) needs
+  the `.pt` checkpoint that `train.py` writes next to the header. Only the header is
+  committed, so run it after training a net.
+- `deploy/test_lichess.ps1` (Windows PowerShell) plays a full game through lichess-bot's
+  mocked lichess.org. It needs no account or token.
 
 `test_engine.py` covers four areas, and runs with the NNUE on:
 
@@ -212,8 +243,11 @@ python tools/nnue/verify.py ...  # NNUE exactness vs integer replica, incrementa
   must be found at the exact length.
 - **UCI protocol:** `stop` returns within 200 ms, and a 1-second clock is not overspent.
 
-Reproducing the strength numbers needs `fastchess`, a Stockfish binary and the
-`8moves_v3.pgn` book in `tools/`:
+Reproducing the strength numbers needs three external files in `tools/`, none of them in
+this repository: a [fastchess](https://github.com/Disservin/fastchess) binary, a
+[Stockfish](https://stockfishchess.org/download/) binary (named `fastchess` and `stockfish`,
+plus `.exe` on Windows) and the `8moves_v3.pgn` opening book from
+[official-stockfish/books](https://github.com/official-stockfish/books):
 
 ```sh
 python tools/match.py gauntlet --levels 2800 3000 3190 --games 100 --tag mine
