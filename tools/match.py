@@ -6,7 +6,7 @@
 
 Both write PGNs and fastchess logs to matches/ and print a summary line per
 match. Expects tools/fastchess(.exe), tools/stockfish(.exe) and
-tools/8moves_v3.pgn (see docs/TESTING.md).
+tools/8moves_v3.pgn (see the README).
 
   python tools/match.py gauntlet --levels 1800 2200 --games 200
   python tools/match.py sprt --new build/tempo.exe --old temp/base.exe
