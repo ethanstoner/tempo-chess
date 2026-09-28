@@ -242,4 +242,5 @@ Friederich, via the Chess Programming Wiki). `lichess-bot`, fastchess, Stockfish
 
 ## License
 
-No license has been chosen yet, so all rights are reserved by default.
+MIT, see [LICENSE](LICENSE). The external tools above keep their own licenses and are not
+part of this repository.
